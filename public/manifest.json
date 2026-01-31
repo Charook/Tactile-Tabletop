@@ -2,11 +2,12 @@
   "name": "Tactile Tabletop",
   "version": "1.0.0",
   "manifest_version": 1,
+  "background_url": "/background.js",
   "action": {
     "title": "Tactile Tabletop",
     "icon": "/icon.svg",
-    "popover": "/",
-    "height": 600,
-    "width": 400
+    "popover": "/index.html",
+    "width": 300,
+    "height": 400
   }
 }

@@ -1,102 +1,126 @@
 import OBR from "@owlbear-rodeo/sdk";
 
-// This is our main application logic
+// A unique ID for our metadata to avoid clashing with other extensions
+const METADATA_ID = "com.tactile-tabletop.metadata";
+
+// CSS for the UI elements in the popover
+const styles = `
+  .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+  .tabletop-toggle { opacity: 0; width: 0; height: 0; }
+  .slider { 
+    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; 
+    background-color: #ccc; transition: .4s; border-radius: 20px; 
+  }
+  .slider:before {
+    position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
+    background-color: white; transition: .4s; border-radius: 50%;
+  }
+  .tabletop-toggle:checked + .slider { background-color: #4a90e2; }
+  .tabletop-toggle:checked + .slider:before { transform: translateX(20px); }
+  .role-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px; display: inline-block; background: #444; }
+  #status { font-size: 0.9em; margin-bottom: 10px; color: #aaa; }
+`;
+
 async function setup() {
   const statusElement = document.getElementById("status");
   const uiRoot = document.getElementById("ui-root");
 
-  console.log("Tactile Tabletop: Script loading...");
+  // Inject styles for the popover UI
+  const styleSheet = document.createElement("style");
+  styleSheet.innerText = styles;
+  document.head.appendChild(styleSheet);
 
-  // Wait for the OBR SDK to be ready
+  console.log("Tactile Tabletop UI: Initializing...");
+
+  // Safety timeout: If OBR doesn't ready in 5 seconds, inform the user
+  const timeoutId = setTimeout(() => {
+    if (statusElement.innerText === "Connecting...") {
+      statusElement.innerHTML = "<span style='color: #e74c3c;'>Connection Timeout. Check if extension is enabled.</span>";
+    }
+  }, 5000);
+
   OBR.onReady(async () => {
-    console.log("Tactile Tabletop: SDK is ready!");
+    clearTimeout(timeoutId);
+    console.log("Tactile Tabletop UI: SDK Ready.");
     
     try {
       const role = await OBR.player.getRole();
       const name = await OBR.player.getName();
+      const myId = await OBR.player.getId();
 
       statusElement.innerHTML = `Connected as: <strong>${name}</strong>`;
-      
-      // Function to render the DM interface
+
       const renderDMInterface = async () => {
         const players = await OBR.party.getPlayers();
+        const metadata = await OBR.room.getMetadata();
+        const tabletopData = metadata[METADATA_ID] || {};
         
         uiRoot.innerHTML = `
-          <div class="role-badge">DM View</div>
-          <p>Toggle <strong>Tabletop</strong> status for players:</p>
+          <div class="role-badge">DM Control Panel</div>
+          <p>Toggle <strong>Tabletop Mode</strong>:</p>
           <ul id="player-list" style="list-style: none; padding: 0; text-align: left;">
             ${players.map(p => {
-              // We'll placeholder the 'checked' state for now. 
-              // In the next step, we'll pull this from OBR Metadata.
-              const isTabletop = false; 
-              
+              const isTabletop = tabletopData[p.id] === true; 
               return `
-                <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; background: #333; padding: 8px; border-radius: 4px;">
+                <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; background: #333; padding: 10px; border-radius: 6px;">
                   <span>${p.name}</span>
-                  <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
-                    <input type="checkbox" class="tabletop-toggle" data-id="${p.id}" ${isTabletop ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
-                    <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
+                  <label class="switch">
+                    <input type="checkbox" class="tabletop-toggle" data-id="${p.id}" ${isTabletop ? 'checked' : ''}>
+                    <span class="slider"></span>
                   </label>
                 </li>
               `;
             }).join('')}
           </ul>
-          <style>
-            .tabletop-toggle:checked + .slider { background-color: #4a90e2; }
-            .slider:before {
-              position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
-              background-color: white; transition: .4s; border-radius: 50%;
-            }
-            .tabletop-toggle:checked + .slider:before { transform: translateX(20px); }
-          </style>
-          <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
-          <button id="test-btn" style="padding: 8px; cursor: pointer; width: 100%;">Ping My Browser</button>
         `;
 
-        // Add change events to the toggles
         document.querySelectorAll('.tabletop-toggle').forEach(toggle => {
-          toggle.onchange = (e) => {
+          toggle.onchange = async (e) => {
             const playerId = toggle.getAttribute('data-id');
-            const playerName = players.find(p => p.id === playerId)?.name;
             const isChecked = e.target.checked;
             
-            if (isChecked) {
-              OBR.notification.show(`${playerName} is now a Tabletop.`);
-            } else {
-              OBR.notification.show(`${playerName} is no longer a Tabletop.`);
-            }
+            const currentMetadata = await OBR.room.getMetadata();
+            const currentTabletopData = currentMetadata[METADATA_ID] || {};
+            currentTabletopData[playerId] = isChecked;
             
-            // Logic for saving this persistent state to OBR Metadata will go here next
+            await OBR.room.setMetadata({ [METADATA_ID]: currentTabletopData });
+            OBR.notification.show(`Tabletop mode ${isChecked ? 'enabled' : 'disabled'} for ${players.find(p => p.id === playerId)?.name}`);
           };
         });
-
-        document.getElementById("test-btn").onclick = () => {
-          OBR.notification.show(`Hello ${name}! The extension is working.`);
-        };
       };
 
-      // Basic Role identification logic
+      const renderPlayerInterface = async () => {
+        const metadata = await OBR.room.getMetadata();
+        const tabletopData = metadata[METADATA_ID] || {};
+        const isTabletop = tabletopData[myId] === true;
+
+        if (isTabletop) {
+          uiRoot.innerHTML = `
+            <div class="role-badge" style="background-color: #e67e22;">TABLETOP MODE ACTIVE</div>
+            <p><strong>Shielding enabled.</strong> This browser instance is now the physical interface.</p>
+          `;
+        } else {
+          uiRoot.innerHTML = `
+            <div class="role-badge">Player View</div>
+            <p>Waiting for DM role assignment.</p>
+          `;
+        }
+      };
+
       if (role === "GM") {
         await renderDMInterface();
-        
-        // Update the list whenever the party changes (players join/leave)
-        OBR.party.onChange(() => {
-          renderDMInterface();
-        });
-
+        OBR.party.onChange(renderDMInterface);
+        OBR.room.onMetadataChange(renderDMInterface);
       } else {
-        uiRoot.innerHTML = `
-          <div class="role-badge">Player View</div>
-          <p>Waiting for DM to assign Tabletop role.</p>
-        `;
+        await renderPlayerInterface();
+        OBR.room.onMetadataChange(renderPlayerInterface);
       }
       
     } catch (error) {
-      statusElement.innerText = "Error connecting to OBR data.";
-      console.error("Tactile Tabletop: SDK Error:", error);
+      statusElement.innerText = "Error: " + error.message;
+      console.error("Tactile Tabletop: UI Error:", error);
     }
   });
 }
 
-// Start the app
 setup();
